@@ -46,11 +46,13 @@
   /* ----- state ----- */
   var activeSecs = new Set(SECS);
   var showOrphans = true;
-  var hoverId = -1, selectedId = -1, curK = 1;
+  var hoverId = -1, selectedId = -1, curK = 1, hoverAdj = null;
 
   /* ----- graph (layout is precomputed; no simulation runs) ----- */
   var loading = el("loading");
   var loadDone = false;
+  var nudgeTimer = null;
+
   function finishLoad() {
     if (loadDone) return;
     loadDone = true;
@@ -59,19 +61,29 @@
     setTimeout(function () { loading.style.display = "none"; }, 500);
   }
 
+  /* with a frozen layout the engine is idle, so force-graph pauses
+     redrawing; briefly unpause whenever hover state may change */
+  function nudge(ms) {
+    Graph.autoPauseRedraw(false);
+    clearTimeout(nudgeTimer);
+    nudgeTimer = setTimeout(function () { Graph.autoPauseRedraw(true); }, ms || 800);
+  }
+
   var Graph = new ForceGraph(el("graph"))
     .backgroundColor("#0a0d13")
     .nodeRelSize(1)
     .nodeVal(function (n) { return radius(n) * radius(n); })
     .nodeLabel(nodeTooltip)
     .linkColor(linkColor)
-    .linkWidth(0.35)
+    .linkWidth(linkWidth)
     .linkDirectionalParticles(0)
     .enableNodeDrag(false)
     .cooldownTicks(0)
     .onNodeHover(function (n) {
       hoverId = n ? n.id : -1;
+      hoverAdj = n && adj[n.id] ? adj[n.id] : null;
       el("graph").style.cursor = n ? "pointer" : "grab";
+      nudge(1200);
     })
     .onNodeClick(openNode)
     .onBackgroundClick(clearSelection)
@@ -109,13 +121,24 @@
       return "rgba(120, 200, 255, 0.7)";
     return "rgba(140, 155, 180, 0.13)";
   }
+  function linkWidth(l) {
+    if (hoverId >= 0 && (l.source.id === hoverId || l.target.id === hoverId))
+      return 2.4;
+    if (selectedId >= 0 && (l.source.id === selectedId || l.target.id === selectedId))
+      return 1.6;
+    return 0.35;
+  }
 
   function drawNode(n, ctx, gs) {
     var hi = hoverId >= 0 || selectedId >= 0;
     var inN = !hi || n.id === hoverId || n.id === selectedId ||
       (hoverId >= 0 && adj[hoverId] && adj[hoverId].has(n.id)) ||
       (selectedId >= 0 && adj[selectedId] && adj[selectedId].has(n.id));
+    var isFocus = n.id === hoverId || n.id === selectedId;
+    var isNbr = hi && inN && !isFocus;
     var r = radius(n);
+    if (isFocus) r *= 1.15;
+    if (isNbr) r *= 1.35;
     var cx = n.x, cy = n.y;
     var alpha = inN ? 1 : 0.1;
 
@@ -125,15 +148,21 @@
     ctx.fillStyle = color(n.sec);
     ctx.fill();
 
-    if (n.id === hoverId || n.id === selectedId) {
+    if (isFocus) {
       ctx.lineWidth = 1.5 / gs;
       ctx.strokeStyle = n.id === selectedId ? "#7cc8ff" : "#ffffff";
+      ctx.stroke();
+    } else if (isNbr) {
+      ctx.lineWidth = 1.2 / gs;
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.55)";
       ctx.stroke();
     }
 
     var showLabel =
-      n.id === hoverId || n.id === selectedId ||
+      isFocus ||
       (inN && (
+        (hoverAdj && hoverAdj.size <= 80 && n.id !== selectedId &&
+          (hoverAdj.has(n.id) || n.id === hoverId)) ||
         (curK >= 1.5 && n.deg >= 25) ||
         (curK >= 2.2 && n.deg >= 8) ||
         (curK >= 3.2 && n.deg >= 2) ||
@@ -182,6 +211,7 @@
   function rebuild() {
     Graph.graphData(currentData());
     updateStats();
+    nudge(400);
   }
 
   /* ----- legend ----- */
@@ -280,6 +310,7 @@
     }
     Graph.centerAt(n.x, n.y, 700);
     Graph.zoom(Math.max(curK, 3.4), 700);
+    nudge(2200);
   }
 
   function esc(s) {
@@ -298,6 +329,7 @@
   el("gen").textContent = "generated " + DATA.meta.generated;
 
   /* ----- go ----- */
+  window.__GRAPH__ = Graph; /* debug/testing handle */
   Graph.graphData(currentData());
   updateStats();
   finishLoad();
