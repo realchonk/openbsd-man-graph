@@ -12,6 +12,8 @@ SEE ALSO sections. Clicking a page opens it at
 
 The layout is precomputed offline, so the page renders immediately.
 
+Source code: <https://github.com/realchonk/openbsd-man-graph>
+
 ## Run
 
 No build step and no server needed — open `index.html` directly, or:
